@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import logging
+import struct
 from socket import socket, AF_INET, SOCK_DGRAM, ntohl
 from xdrlib import Unpacker
 
 
 FORMAT_FLOW_SAMPLE = 1
 FORMAT_COUNTER_SAMPLE = 2
+FORMAT_EXPANDED_FLOW_SAMPLE = 3
+FORMAT_EXPANDED_COUNTER_SAMPLE = 4
 
 FORMAT_COUNTER_RECORD_GENERIC = 1
 FORMAT_COUNTER_RECORD_ETHERNET = 2
@@ -14,6 +17,58 @@ FORMAT_COUNTER_RECORD_TOKENRING = 3
 FORMAT_COUNTER_RECORD_100BASEVG = 4
 FORMAT_COUNTER_RECORD_VLAN = 5
 FORMAT_COUNTER_RECORD_PROCESS = 1001
+
+FORMAT_FLOW_RECORD_RAW_PACKET = 1
+FORMAT_FLOW_RECORD_ETHERNET_FRAME = 2
+FORMAT_FLOW_RECORD_IPv4 = 3
+FORMAT_FLOW_RECORD_IPv6 = 4
+FORMAT_FLOW_RECORD_EXTENDED_SWITCH = 1001
+FORMAT_FLOW_RECORD_EXTENDED_ROUTER = 1002
+FORMAT_FLOW_RECORD_EXTENDED_GATEWAY = 1003
+FORMAT_FLOW_RECORD_USER = 1004
+FORMAT_FLOW_RECORD_EXTENDED_URL = 1005
+FORMAT_FLOW_RECORD_EXTENDED_MPLS = 1006
+FORMAT_FLOW_RECORD_EXTENDED_NAT = 1007
+FORMAT_FLOW_RECORD_EXTENDED_MPLS_TUNNEL = 1008
+FORMAT_FLOW_RECORD_EXTENDED_MPLS_VC = 1009
+FORMAT_FLOW_RECORD_EXTENDED_MPLS_FEC = 1010
+FORMAT_FLOW_RECORD_EXTENDED_MPLS_LVP = 1011
+FORMAT_FLOW_RECORD_EXTENDED_VLAN_TUNNEL = 1012
+
+HEADER_PROTO_ETHERNET_ISO88023 = 1
+
+ETHER_TYPE_IEEE8021Q = 0x8100
+ETHER_TYPE_IPv4 = 0x0800
+ETHER_TYPE_ARP = 0x0806
+
+
+def get_uint(data, offset):
+    d = struct.unpack("!B", data[offset])
+    return d[0]
+
+def get_mac_str(binary_mac):
+    offset_0 = get_uint(binary_mac, 0)
+    offset_1 = get_uint(binary_mac, 1)
+    offset_2 = get_uint(binary_mac, 2)
+    offset_3 = get_uint(binary_mac, 3)
+    offset_4 = get_uint(binary_mac, 4)
+    offset_5 = get_uint(binary_mac, 5)
+    return "%02X:%02X:%02X:%02X:%02X:%02X" % (
+        offset_0,
+        offset_1,
+        offset_2,
+        offset_3,
+        offset_4,
+        offset_5
+    )
+
+def get_ip_str(binary_ip):
+    return "%d.%d.%d.%d" % (
+        get_uint(binary_ip, 0),
+        get_uint(binary_ip, 1),
+        get_uint(binary_ip, 2),
+        get_uint(binary_ip, 3)
+    )
 
 
 class SFlowPacket(object):
@@ -31,6 +86,73 @@ class SFlowPacket(object):
         self.counter_samples = []
 
 
+class EthernetHeader(object):
+
+    def __init__(self, header):
+        self.dest_mac = get_mac_str(header[0:6])
+        self.src_mac = get_mac_str(header[6:12])
+        self.ether_type = get_uint(header, 12)*256 + get_uint(header, 13)
+
+
+class IEEE8021QHeader(object):
+
+    def __init__(self, header):
+        self.dest_mac = get_mac_str(header[0:6])
+        self.src_mac = get_mac_str(header[6:12])
+        self.vlan_id = get_uint(header, 14)* 56 + get_uint(header, 15)
+        self.ether_type = get_uint(header, 16)*256 + get_uint(header, 17)
+
+
+class TCPHeader(object):
+
+    def __init__(self, header):
+        self.src_port = get_uint(header, 0)*256 + get_uint(header, 1)
+        self.dst_port = get_uint(header, 2)*256 + get_uint(header, 3)
+
+
+class UDPHeader(object):
+
+    def __init__(self, header):
+        self.src_port = get_uint(header, 0)*256 + get_uint(header, 1)
+        self.dst_port = get_uint(header, 2)*256 + get_uint(header, 3)
+
+
+class ARPHeader(object):
+
+    def __init__(self, header):
+        self.arp_op = get_uint(header, 6)*256 + get_uint(header, 7)
+        self.arp_sha = get_mac_str(header[8:14])
+        self.arp_spa = get_ip_str(header[14:18])
+        self.arp_tha = get_mac_str(header[18:24])
+        self.arp_tpa = get_ip_str(header[24:28])
+
+
+class IPv4Header(object):
+
+    def __init__(self, header):
+        self.version = (get_uint(header, 0) & 0xf0) >> 4
+        self.ihl = get_uint(header, 0) & 0x0f
+        self.tos = get_uint(header, 1)
+        self.length = get_uint(header, 2)*256 + get_uint(header, 2)
+        self.ident = get_uint(header, 4)*256 + get_uint(header, 5)
+        self.flags = get_uint(header, 6) & 0x07
+        self.fragment_offset = (((get_uint(header, 6) & 0xf8) >> 3)*256 +
+                                get_uint(header, 7))
+        self.ttl = get_uint(header, 8)
+        self.protocol = get_uint(header, 9)
+        self.chksum = get_uint(header, 10)*256 + get_uint(header, 11)
+        self.src_ip = get_ip_str(header[12:16])
+        self.dest_ip = get_ip_str(header[16:20])
+
+        if len(header) > 20:
+            self.transport_layer_header_parsed = True
+            if self.protocol == 6:
+                self.tcp_header = TCPHeader(header[20:])
+            elif self.protocol == 17:
+                self.udp_header = UDPHeader(header[20:])
+        else:
+            self.transport_layer_header_parsed = False
+
 class Record(object):
 
     def __init__(self, sample_data):
@@ -41,7 +163,103 @@ class FlowRecord(Record):
 
     def __init__(self, sample_data):
         super(FlowRecord, self).__init__(sample_data)
-        # TODO
+        self.parsed = True
+        self.format = sample_data.unpack_uint()
+        record_data = Unpacker(sample_data.unpack_opaque())
+
+        if self.format == FORMAT_FLOW_RECORD_RAW_PACKET:
+            self._parse_raw_packet(record_data)
+        elif self.format == FORMAT_FLOW_RECORD_ETHERNET_FRAME:
+            self._parse_ethernet_frame(record_data)
+        elif self.format == FORMAT_FLOW_RECORD_IPv4:
+            self._parse_ipv4(record_data)
+        else:
+            logging.warn("Format {0} is not supported now.".format(
+                self.format
+            ))
+            self.parsed = False
+
+    def _parse_raw_packet_header(self, header):
+        if len(header) < 14:
+            logging.warn("RAW Packet Header too short, ignore this record.")
+            self.parsed = False
+
+        self.ether_type = get_uint(header, 12)*256 + get_uint(header, 13)
+        if self.ether_type == ETHER_TYPE_IEEE8021Q:
+            self._parse_ether_type_8021q(header)
+        elif self.ether_type == ETHER_TYPE_ARP:
+            self._parse_ether_type_arp(header)
+        elif self.ether_type == ETHER_TYPE_IPv4:
+            self._parse_ether_type_ipv4(header)
+        else:
+            logging.warn("Ether Type {0} is not supported now.".format(
+                self.ether_type
+            ))
+            self.parsed = False
+
+    def _parse_ether_type_arp(self, header):
+        self.ether_header = EthernetHeader(header)
+
+        if len(header) >= 14 + 28:
+            self.arp_header_parsed = True
+            self._parse_arp_header(header[14:])
+        else:
+            self.arp_header_parsed = False
+
+    def _parse_arp_header(self, header):
+        self.arp_header = ARPHeader(header)
+
+    def _parse_ether_type_8021q(self, header):
+        self.ieee8021q_header = IEEE8021QHeader(header)
+
+        if self.ieee8021q_header.ether_type == ETHER_TYPE_ARP:
+            self._parse_ether_type_arp(header)
+        elif self.ieee8021q_header.ether_type == ETHER_TYPE_IPv4:
+            self._parse_ether_type_ipv4(header)
+
+    def _parse_ether_type_ipv4(self, header):
+        self.ether_header = EthernetHeader(header)
+
+        if len(header) >= 14 + 20:
+            self.ipv4_header_parsed = True
+            self._parse_ipv4_header(header[14:])
+        else:
+            self.ipv4_header_parsed = False
+
+    def _parse_ipv4_header(self, header):
+        self.ipv4_header = IPv4Header(header)
+
+    def _parse_raw_packet(self, record_data):
+        # header protocol (1=ethernet, .... 11=IPv4, 12=IPv6)
+        self.header_protocol = record_data.unpack_int()
+        # frame length (length before sampling)
+        self.frame_length = record_data.unpack_uint()
+        # stripped (number of bytes removed from the packet)
+        self.stripped = record_data.unpack_uint()
+        self.header = record_data.unpack_opaque()
+        if self.header_protocol == HEADER_PROTO_ETHERNET_ISO88023:
+            self._parse_raw_packet_header(self.header)
+        else:
+            logging.warn("Header Protocol {0} is not supported now.".format(
+                self.header_protocol
+            ))
+            self.parsed = False
+
+    def _parse_ethernet_frame(self, record_data):
+        self.length = record_data.unpack_uint()
+        self.src_mac = get_mac_str(record_data.unpack_fopaque(8)[0:6])
+        self.dest_mac = get_mac_str(record_data.unpack_fopaque(8)[0:6])
+        self.type = record_data.unpack_uint()
+
+    def _parse_ipv4(self, record_data):
+        self.length = record_data.unpack_uint()
+        self.protocol = record_data.unpack_uint()
+        self.src_ip = get_ip_str(record_data.unpack_fopaque(4))
+        self.dst_ip = get_ip_str(record_data.unpack_fopaque(4))
+        self.src_port = record_data.unpack_uint()
+        self.dst_port = record_data.unpack_uint()
+        self.tcp_flags = record_data.unpack_uint()
+        self.tos = record_data.unpack_uint()
 
 
 class CounterRecord(Record):
@@ -172,6 +390,8 @@ class FlowSample(Sample):
         self.drops = None
         self.input_if = None
         self.output_if = None
+        self.record_amount = None
+        self.records = []
 
         sample_data = Unpacker(data.unpack_opaque())
         self._parse(packet, sample_data)
@@ -197,7 +417,9 @@ class FlowSample(Sample):
 
         self.record_amount = sample_data.unpack_uint()
         for _ in range(0, self.record_amount):
-            self.records.append(FlowRecord(sample_data))
+            fr = FlowRecord(sample_data)
+            if fr.parsed:
+                self.records.append(fr)
 
 
 class CounterSample(Sample):
@@ -276,11 +498,11 @@ class SPManager(object):
             elif format_ == FORMAT_COUNTER_SAMPLE:
                 packet.counter_samples.append(CounterSample(packet, data))
             else:
-                logging.error("Sample format {0} is not support now.".format(
+                logging.error("Sample format {0} is not supported now.".format(
                     format_
                 ))
                 raise RuntimeError("Sample format {0} is not "
-                                   "support now.".format(format_))
+                                   "supported now.".format(format_))
 
 
 if __name__ == "__main__":
@@ -291,4 +513,12 @@ if __name__ == "__main__":
     m = SPManager()
     while True:
         data, addr = sock.recvfrom(65535)
-        print m.parse(data)
+        s = m.parse(data).flow_samples
+        if len(s) > 0:
+            for r in s[0].records:
+                if r.ether_type == ETHER_TYPE_ARP:
+                    print r.arp_header.arp_op
+                    print r.arp_header.arp_sha
+                    print r.arp_header.arp_spa
+                    print r.arp_header.arp_tha
+                    print r.arp_header.arp_tpa
