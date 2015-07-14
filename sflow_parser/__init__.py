@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+# sFlow version 5 document: http://www.sflow.org/sflow_version_5.txt
+
 import logging
 import struct
 from socket import socket, AF_INET, SOCK_DGRAM, ntohl
@@ -173,11 +175,19 @@ class FlowRecord(Record):
             self._parse_ethernet_frame(record_data)
         elif self.format == FORMAT_FLOW_RECORD_IPv4:
             self._parse_ipv4(record_data)
+        elif self.format == FORMAT_FLOW_RECORD_EXTENDED_SWITCH:
+            self._parse_extended_switch(record_data)
         else:
             logging.warn("Format {0} is not supported now.".format(
                 self.format
             ))
             self.parsed = False
+
+    def _parse_extended_switch(self, record_data):
+        self.src_vlan = record_data.unpack_uint()
+        self.src_priority = record_data.unpack_uint()
+        self.dest_vlan = record_data.unpack_uint()
+        self.dest_priority = record_data.unpack_uint()
 
     def _parse_raw_packet_header(self, header):
         if len(header) < 14:
@@ -513,12 +523,21 @@ if __name__ == "__main__":
     m = SPManager()
     while True:
         data, addr = sock.recvfrom(65535)
-        s = m.parse(data).flow_samples
-        if len(s) > 0:
-            for r in s[0].records:
-                if r.ether_type == ETHER_TYPE_ARP:
-                    print r.arp_header.arp_op
-                    print r.arp_header.arp_sha
-                    print r.arp_header.arp_spa
-                    print r.arp_header.arp_tha
-                    print r.arp_header.arp_tpa
+        packet = m.parse(data)
+
+        for sample in packet.flow_samples:
+            for record in sample.records:
+                if (record.format == FORMAT_FLOW_RECORD_RAW_PACKET and
+                        record.ether_type == ETHER_TYPE_ARP):
+                    print ("GET ARP SAMPLE RECORD.")
+                    print ("ARP_OP: {0}".format(
+                        ["", "ARP", "ARP RESP", "RARP", "RARP RESP"]    \
+                        [record.arp_header.arp_op]
+                    ))
+                    print ("ARP_SHA: {0}".format(record.arp_header.arp_sha))
+                    print ("ARP_SPA: {0}".format(record.arp_header.arp_spa))
+                    print ("ARP_THA: {0}".format(record.arp_header.arp_tha))
+                    print ("ARP_TPA: {0}".format(record.arp_header.arp_tpa))
+                    print ("")
+
+
