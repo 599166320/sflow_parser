@@ -1,5 +1,5 @@
 import logging
-from socket import socket, AF_INET, SOCK_DGRAM, ntohl
+from socket import socket, AF_INET, SOCK_DGRAM
 
 from sflow_parser import (SPManager,
                           FORMAT_FLOW_RECORD_RAW_PACKET,
