@@ -185,7 +185,7 @@ class FlowRecord(Record):
 
     def _parse_extended_switch(self, record_data):
         self.src_vlan = record_data.unpack_uint()
-        self.src_aority = record_data.unpack_uint()
+        self.src_priority = record_data.unpack_uint()
         self.dest_vlan = record_data.unpack_uint()
         self.dest_priority = record_data.unpack_uint()
 
