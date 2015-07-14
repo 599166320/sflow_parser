@@ -531,7 +531,7 @@ if __name__ == "__main__":
                         record.ether_type == ETHER_TYPE_ARP):
                     print ("GET ARP SAMPLE RECORD.")
                     print ("ARP_OP: {0}".format(
-                        ["", "ARP", "ARP RESP", "RARP", "RARP RESP"]    \
+                        ["", "ARP", "ARP RESP", "RARP", "RARP RESP"]
                         [record.arp_header.arp_op]
                     ))
                     print ("ARP_SHA: {0}".format(record.arp_header.arp_sha))
