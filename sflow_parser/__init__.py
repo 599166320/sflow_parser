@@ -514,5 +514,3 @@ class SPManager(object):
                 raise RuntimeError("Sample format {0} is not "
                                    "supported now.".format(format_))
 
-
-
