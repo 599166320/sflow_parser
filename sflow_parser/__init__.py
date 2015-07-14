@@ -109,14 +109,14 @@ class TCPHeader(object):
 
     def __init__(self, header):
         self.src_port = get_uint(header, 0)*256 + get_uint(header, 1)
-        self.dst_port = get_uint(header, 2)*256 + get_uint(header, 3)
+        self.dest_port = get_uint(header, 2)*256 + get_uint(header, 3)
 
 
 class UDPHeader(object):
 
     def __init__(self, header):
         self.src_port = get_uint(header, 0)*256 + get_uint(header, 1)
-        self.dst_port = get_uint(header, 2)*256 + get_uint(header, 3)
+        self.dest_port = get_uint(header, 2)*256 + get_uint(header, 3)
 
 
 class ARPHeader(object):
@@ -185,7 +185,7 @@ class FlowRecord(Record):
 
     def _parse_extended_switch(self, record_data):
         self.src_vlan = record_data.unpack_uint()
-        self.src_priority = record_data.unpack_uint()
+        self.src_aority = record_data.unpack_uint()
         self.dest_vlan = record_data.unpack_uint()
         self.dest_priority = record_data.unpack_uint()
 
