@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import logging
-from socket import ntohl
+from socket import socket, AF_INET, SOCK_DGRAM, ntohl
 from xdrlib import Unpacker
 
 
@@ -40,14 +40,14 @@ class Record(object):
 class FlowRecord(Record):
 
     def __init__(self, sample_data):
-        super(self, FlowRecord).__init__(sample_data)
+        super(FlowRecord, self).__init__(sample_data)
         # TODO
 
 
 class CounterRecord(Record):
 
     def __init__(self, sample_data):
-        super(self, CounterRecord).__init__(sample_data)
+        super(CounterRecord, self).__init__(sample_data)
         self.format = sample_data.unpack_uint()
         record_data = Unpacker(sample_data.unpack_opaque())
 
@@ -162,7 +162,7 @@ class Sample(object):
 class FlowSample(Sample):
 
     def __init__(self, packet, data):
-        super(self, FlowSample).__init__(packet, data)
+        super(FlowSample, self).__init__(packet, data)
         self.format = FORMAT_FLOW_SAMPLE
 
         self.sequence_number = None
@@ -203,7 +203,7 @@ class FlowSample(Sample):
 class CounterSample(Sample):
 
     def __init__(self, packet, data):
-        super(self, CounterSample).__init__(packet, data)
+        super(CounterSample, self).__init__(packet, data)
         self.format = FORMAT_COUNTER_SAMPLE
 
         self.sequence_num = None
@@ -282,3 +282,13 @@ class SPManager(object):
                 raise RuntimeError("Sample format {0} is not "
                                    "support now.".format(format_))
 
+
+if __name__ == "__main__":
+    logging.basicConfig()
+    listen_addr = ("0.0.0.0", 6343)
+    sock = socket(AF_INET, SOCK_DGRAM)
+    sock.bind(listen_addr)
+    m = SPManager()
+    while True:
+        data, addr = sock.recvfrom(65535)
+        print m.parse(data)
